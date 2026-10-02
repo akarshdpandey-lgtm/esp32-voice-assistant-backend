@@ -58,22 +58,27 @@ void webSocketEvent(
       webSocket.sendTXT("{\"type\":\"session_start\",\"device_id\":\"esp32\"}");
       break;
 
-    case WStype_TEXT:
-      Serial.print("[WS] RX: ");
-      for (size_t i = 0; i < length; i++) {
-        Serial.print((char)payload[i]);
-      }
-      Serial.println();
+    case WStype_TEXT: {
+      char textMsg[128];
+      size_t copyLen = length < 127 ? length : 127;
+      memcpy(textMsg, payload, copyLen);
+      textMsg[copyLen] = '\0';
 
-      // Check for playback control messages
-      if (strstr((char*)payload, "\"type\":\"playback_start\"") != NULL) {
+      Serial.print("[WS] RX: ");
+      Serial.println(textMsg);
+
+      // Check for playback control messages (matches with or without spaces)
+      if (strstr(textMsg, "playback_start") != NULL) {
         isPlaying = true;
         lastAudioRxTime = millis();
-      } else if (strstr((char*)payload, "\"type\":\"audio_done\"") != NULL) {
+        Serial.println("[SPK] Status: Speaking (Mic muted)");
+      } else if (strstr(textMsg, "audio_done") != NULL) {
         isPlaying = false;
         lastAudioRxTime = millis();
+        Serial.println("[SPK] Status: Done speaking (Mic listening...)");
       }
       break;
+    }
 
     case WStype_BIN:
     case WStype_FRAGMENT_BIN_START:
@@ -378,6 +383,12 @@ void playSpeakerTest() {
 // MICROPHONE PROCESSING
 // ==================================================
 void processMicrophoneAudio() {
+
+  // Auto-safety: If no audio received for >1.2s, automatically unmute mic
+  if (isPlaying && (millis() - lastAudioRxTime > 1200)) {
+    isPlaying = false;
+    Serial.println("[SPK] Auto-recovered from playback lock (Mic listening...)");
+  }
 
   // Do not read or send microphone audio while speaker is playing to avoid Wi-Fi congestion and echo
   if (!wsConnected || isPlaying || (millis() - lastAudioRxTime < 400)) {
