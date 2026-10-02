@@ -11,6 +11,16 @@ logger = logging.getLogger("backend.main")
 
 app = FastAPI(title="ESP32 OpenRouter Voice Assistant Backend")
 
+@app.get("/")
+async def root():
+    return JSONResponse({
+        "status": "online",
+        "message": "ESP32 Voice Assistant Backend is RUNNING",
+        "health": "/health",
+        "docs": "/docs",
+        "websocket": "/ws/audio"
+    })
+
 
 @app.get("/health")
 async def health_check():
