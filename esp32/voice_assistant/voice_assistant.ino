@@ -76,13 +76,17 @@ void webSocketEvent(
       break;
 
     case WStype_BIN:
+    case WStype_FRAGMENT_BIN_START:
+    case WStype_FRAGMENT:
+    case WStype_FRAGMENT_FIN:
+      if (!isPlaying) {
+        Serial.printf("[SPK] Audio playback started (%u bytes)\n", (unsigned int)length);
+      }
       isPlaying = true;
       lastAudioRxTime = millis();
 
-      // Speaker playback (no Serial print inside binary handler to prevent audio stutter)
       if (speakerReady && length > 0) {
         size_t bytesWritten = 0;
-
         i2s_write(
           SPK_I2S_PORT,
           payload,
@@ -106,6 +110,7 @@ void webSocketEvent(
       break;
 
     default:
+      Serial.printf("[WS] Event type: %d, length: %u\n", (int)type, (unsigned int)length);
       break;
   }
 }
@@ -347,7 +352,7 @@ void playSpeakerTest() {
       int16_t sample =
         (int16_t)(
           sin(2.0f * PI * frequency * t)
-          * 000
+          * 10000
         );
 
       // Stereo

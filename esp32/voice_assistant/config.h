@@ -12,18 +12,12 @@
 // WEBSOCKET BACKEND CONFIGURATION
 // ==================================================
 
-// Local PC connection:
-// ws://192.168.1.7:8000/ws/audio
+// Cloud Render connection:
+// wss://esp32-voice-assistant-backend.onrender.com/ws/audio
 
-// Cloud connection ke liye baad mein:
-// USE_SSL true
-// SERVER_HOST = cloud domain
-// SERVER_PORT = 443
-
-#define USE_SSL false
-
-#define SERVER_HOST "192.168.1.7"
-#define SERVER_PORT 8000
+#define USE_SSL true
+#define SERVER_HOST "esp32-voice-assistant-backend.onrender.com"
+#define SERVER_PORT 443
 #define SERVER_PATH "/ws/audio"
 
 // ==================================================
@@ -58,5 +52,9 @@
 
 #define MIC_CHUNK_SAMPLES 320
 #define WIFI_RETRY_INTERVAL_MS 5000
+
+// ==================================================
+// END
+// ==================================================
 
 #endif // CONFIG_H

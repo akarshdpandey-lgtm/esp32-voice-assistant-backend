@@ -220,7 +220,12 @@ class OpenRouterVoiceSessionManager:
 
             if _WELCOME_AUDIO_CACHE and self.running:
                 logger.info("[VOICE] Speaking welcome greeting to ESP32...")
+                audio_dur = len(_WELCOME_AUDIO_CACHE) / (24000 * 2 * 2)
+                t_start = time.time()
+                await self.send_to_esp32_control({"type": "playback_start"})
                 await self._stream_audio_to_esp32(_WELCOME_AUDIO_CACHE)
+                rem = max(0.4, audio_dur - (time.time() - t_start) + 0.3)
+                await asyncio.sleep(rem)
                 await self.send_to_esp32_control({"type": "audio_done"})
                 logger.info("[VOICE] Welcome greeting finished.")
         except Exception as e:
