@@ -22,7 +22,8 @@ from backend.config import (
     TEST_MODE,
     AUDIO_GAIN,
     ENABLE_WELCOME,
-    WELCOME_MESSAGE
+    WELCOME_MESSAGE,
+    VAD_THRESHOLD_RMS
 )
 
 logger = logging.getLogger("backend.realtime")
@@ -168,7 +169,7 @@ class OpenRouterVoiceSessionManager:
         self.is_speech_active = False
         self.speech_start_time = 0.0
         self.last_speech_sound_time = 0.0
-        self.vad_threshold_rms = 450.0  # RMS threshold for speech activity
+        self.vad_threshold_rms = VAD_THRESHOLD_RMS  # RMS threshold for speech activity
         self.silence_duration_sec = 0.70  # Natural silence threshold (allows pauses without cutting off)
         self.min_speech_duration_sec = 0.25  # Minimum speech duration to consider valid
         self.max_utterance_sec = 15.0  # Maximum speech duration before forcing transcribe
