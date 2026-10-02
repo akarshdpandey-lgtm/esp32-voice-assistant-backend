@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+httpx
+edge-tts
+miniaudio
+SpeechRecognition
+python-dotenv
