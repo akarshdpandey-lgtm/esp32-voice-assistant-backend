@@ -76,6 +76,11 @@ void webSocketEvent(
         isPlaying = false;
         lastAudioRxTime = millis();
         Serial.println("[SPK] Status: Done speaking (Mic listening...)");
+      } else if (strstr(textMsg, "playback_stopped") != NULL) {
+        isPlaying = false;
+        i2s_zero_dma_buffer(SPK_I2S_PORT);
+        lastAudioRxTime = 0;
+        Serial.println("[SPK] Status: Playback halted by interrupt (Mic listening...)");
       }
       break;
     }
@@ -390,8 +395,7 @@ void processMicrophoneAudio() {
     Serial.println("[SPK] Auto-recovered from playback lock (Mic listening...)");
   }
 
-  // Do not read or send microphone audio while speaker is playing to avoid Wi-Fi congestion and echo
-  if (!wsConnected || isPlaying || (millis() - lastAudioRxTime < 400)) {
+  if (!wsConnected) {
     return;
   }
 
@@ -402,7 +406,7 @@ void processMicrophoneAudio() {
     rawSamples,
     sizeof(rawSamples),
     &bytesRead,
-    20
+    15
   );
 
   if (result != ESP_OK || bytesRead == 0) {
@@ -457,6 +461,28 @@ void processMicrophoneAudio() {
 
   if (sampleCount > 0) {
     rms = sqrt(sumSquares / sampleCount);
+  }
+
+  // -----------------------------------------------
+  // BARGE-IN: VOICE INTERRUPTION DURING PLAYBACK
+  // -----------------------------------------------
+  if (isPlaying) {
+    // When speaker is playing, normal acoustic sound picked up by mic is ~150-350 RMS.
+    // When the user speaks near mic to interrupt, RMS spikes (>550 RMS).
+    if (rms > 550.0) {
+      Serial.printf("[INTERRUPT] Voice detected (RMS=%.1f)! Cutting off speaker...\n", rms);
+      isPlaying = false;
+      lastAudioRxTime = 0;
+      i2s_zero_dma_buffer(SPK_I2S_PORT);
+      webSocket.sendTXT("{\"type\":\"interrupt\"}");
+      // Fall through to send this speech chunk so the new question isn't lost
+    } else {
+      // Normal speaker playback sound; drop to avoid echo feedback
+      return;
+    }
+  } else if (millis() - lastAudioRxTime < 250) {
+    // Settle window after playback ends
+    return;
   }
 
   // -----------------------------------------------

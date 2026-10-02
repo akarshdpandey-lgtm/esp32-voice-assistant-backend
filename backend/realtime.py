@@ -30,14 +30,13 @@ logger = logging.getLogger("backend.realtime")
 logger.setLevel(logging.INFO)
 
 SYSTEM_PROMPT = (
-    "You are a helpful and intelligent voice assistant running on an ESP32 device. "
-    "Provide clear, complete, and natural answers. "
-    "For standard conversational questions, answer directly and concisely (1 to 3 complete sentences). "
-    "If the user asks for a song, poem, national anthem, prayer, list, or detailed explanation, provide the complete text fully without cutting it short. "
-    "For Hindi questions, answer in natural Hindi in Devanagari script with proper pronunciation and grammar. "
+    "You are a fast, helpful, and intelligent voice assistant running on an ESP32 device. "
+    "For standard conversational questions, give direct, clear, and concise answers in 1 to 2 short sentences. "
+    "Never repeat the user's question, ramble, or add conversational filler. "
+    "If the user specifically asks for a full song, poem, national anthem, prayer, list, or detailed explanation, provide the complete text fully without cutting it short. "
+    "For Hindi questions, answer in natural Hindi in Devanagari script. "
     "For English questions, answer in natural English. "
-    "Never use asterisks, markdown, bold text, emojis, or bullet symbols. "
-    "Always speak in complete, well-formed sentences suitable for speech synthesis."
+    "Never use asterisks, markdown, emojis, or bullet symbols."
 )
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -170,7 +169,7 @@ class OpenRouterVoiceSessionManager:
         self.speech_start_time = 0.0
         self.last_speech_sound_time = 0.0
         self.vad_threshold_rms = VAD_THRESHOLD_RMS  # RMS threshold for speech activity
-        self.silence_duration_sec = 0.70  # Natural silence threshold (allows pauses without cutting off)
+        self.silence_duration_sec = 0.38  # Ultra-fast silence detection for rapid response
         self.min_speech_duration_sec = 0.25  # Minimum speech duration to consider valid
         self.max_utterance_sec = 15.0  # Maximum speech duration before forcing transcribe
         
@@ -182,10 +181,27 @@ class OpenRouterVoiceSessionManager:
             logger.warning("[OPENROUTER] OPENROUTER_API_KEY is not configured. Falling back to test mode.")
             self.test_mode = True
 
+    async def interrupt(self):
+        """Immediately halts ongoing speech/streaming when user speaks during playback (Barge-in)."""
+        logger.info("[VOICE] Barge-in interrupt triggered: halting active response.")
+        if self.processing_task and not self.processing_task.done():
+            self.processing_task.cancel()
+            try:
+                await self.processing_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self.is_processing = False
+        self.audio_buffer.clear()
+        self.is_speech_active = False
+        await self.send_to_esp32_control({"type": "playback_stopped"})
+
     async def start(self):
         """Initializes the session and sends session acknowledgment to ESP32."""
         self.running = True
-        self.http_client = httpx.AsyncClient(timeout=10.0)
+        self.http_client = httpx.AsyncClient(
+            timeout=15.0,
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        )
         logger.info("[WS] OpenRouter Voice Session started")
 
         if self.test_mode:

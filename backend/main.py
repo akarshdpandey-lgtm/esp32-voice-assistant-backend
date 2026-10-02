@@ -82,6 +82,9 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                         device_id = data.get("device_id", "UNKNOWN")
                         logger.info(f"[WS] Starting session for device: {device_id}")
                         await session_manager.start()
+                    elif msg_type == "interrupt":
+                        logger.info("[WS] Interrupt received from ESP32")
+                        await session_manager.interrupt()
 
                 except json.JSONDecodeError:
                     logger.warning("[WS] Invalid JSON received from client.")
