@@ -1,0 +1,1 @@
+# Deprecated: Gemini backend removed. Use openrouter_test.py instead.

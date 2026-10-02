@@ -1,0 +1,10 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-dotenv>=1.0.0
+websockets>=11.0
+httpx>=0.25.0
+edge-tts>=7.0.0
+miniaudio>=1.60.0
+SpeechRecognition>=3.10.0
+numpy>=1.24.0
+pytest>=7.0.0
