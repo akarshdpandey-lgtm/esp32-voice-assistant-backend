@@ -267,9 +267,9 @@ void initSpeakerI2S() {
 
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
 
-    .dma_buf_count = 16,
+    .dma_buf_count = 32,
 
-    .dma_buf_len = 256,
+    .dma_buf_len = 512,
 
     .use_apll = false,
 
@@ -389,13 +389,16 @@ void playSpeakerTest() {
 // ==================================================
 void processMicrophoneAudio() {
 
-  // Auto-safety: If no audio received for >1.2s, automatically unmute mic
-  if (isPlaying && (millis() - lastAudioRxTime > 1200)) {
+  // Auto-safety: If no audio received for >1.5s while marked playing, auto-recover
+  if (isPlaying && (millis() - lastAudioRxTime > 1500)) {
     isPlaying = false;
     Serial.println("[SPK] Auto-recovered from playback lock (Mic listening...)");
   }
 
-  if (!wsConnected) {
+  // CRITICAL FIX: While speaker is playing, or in the 350ms acoustic echo settle window,
+  // DO NOT touch mic I2S. Returning immediately gives 100% CPU to webSocket.loop()
+  // for smooth speaker DMA playback without stutter or clicks, and stops self-interrupts!
+  if (!wsConnected || isPlaying || (millis() - lastAudioRxTime < 350)) {
     return;
   }
 
@@ -406,7 +409,7 @@ void processMicrophoneAudio() {
     rawSamples,
     sizeof(rawSamples),
     &bytesRead,
-    15
+    10
   );
 
   if (result != ESP_OK || bytesRead == 0) {
@@ -461,28 +464,6 @@ void processMicrophoneAudio() {
 
   if (sampleCount > 0) {
     rms = sqrt(sumSquares / sampleCount);
-  }
-
-  // -----------------------------------------------
-  // BARGE-IN: VOICE INTERRUPTION DURING PLAYBACK
-  // -----------------------------------------------
-  if (isPlaying) {
-    // When speaker is playing, normal acoustic sound picked up by mic is ~150-350 RMS.
-    // When the user speaks near mic to interrupt, RMS spikes (>550 RMS).
-    if (rms > 550.0) {
-      Serial.printf("[INTERRUPT] Voice detected (RMS=%.1f)! Cutting off speaker...\n", rms);
-      isPlaying = false;
-      lastAudioRxTime = 0;
-      i2s_zero_dma_buffer(SPK_I2S_PORT);
-      webSocket.sendTXT("{\"type\":\"interrupt\"}");
-      // Fall through to send this speech chunk so the new question isn't lost
-    } else {
-      // Normal speaker playback sound; drop to avoid echo feedback
-      return;
-    }
-  } else if (millis() - lastAudioRxTime < 250) {
-    // Settle window after playback ends
-    return;
   }
 
   // -----------------------------------------------
