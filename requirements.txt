@@ -5,3 +5,4 @@ edge-tts
 miniaudio
 SpeechRecognition
 python-dotenv
+numpy
