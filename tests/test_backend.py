@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from backend.main import app
+from backend import config as cfg
 from backend.realtime import (
     OpenRouterVoiceSessionManager,
     clean_llm_response,
@@ -22,8 +23,7 @@ def test_health_endpoint():
     data = response.json()
     assert data["status"] == "healthy"
     assert "openrouter_configured" in data
-    assert "model" in data
-    assert data["model"] == "deepseek/deepseek-v4-flash"
+    assert data["model"] == cfg.OPENROUTER_MODEL
     # Ensure no old Gemini or OpenAI fields remain in response
     assert "gemini_configured" not in data
     assert "openai_configured" not in data

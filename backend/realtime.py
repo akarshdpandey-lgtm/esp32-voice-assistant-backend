@@ -414,14 +414,14 @@ class OpenRouterVoiceSessionManager:
                         "model": self.model,
                         "messages": messages,
                         "temperature": 0.0,
-                        "max_tokens": 300,
-                        "reasoning": {"effort": "none"},
+                        "max_tokens": 800,
                         "stream": True
                     }
 
                     client = self.http_client or httpx.AsyncClient(timeout=20.0)
                     sentence_splitter = re.compile(r'([।!?]|\.(?!\d))\s*|\n+')
                     current_buf = ""
+                    reasoning_buf = ""
                     in_think = False
 
                     async with client.stream("POST", OPENROUTER_API_URL, headers=headers, json=payload) as response:
@@ -446,6 +446,9 @@ class OpenRouterVoiceSessionManager:
                                 data = json.loads(data_str)
                                 delta = data["choices"][0]["delta"].get("content", "")
                                 if not delta:
+                                    r_chunk = data["choices"][0]["delta"].get("reasoning", "")
+                                    if r_chunk:
+                                        reasoning_buf += r_chunk
                                     continue
                                 current_buf += delta
 
@@ -469,6 +472,15 @@ class OpenRouterVoiceSessionManager:
                                         await sentence_queue.put(cleaned)
                             except Exception:
                                 pass
+
+                    if not full_response_parts and not current_buf.strip() and reasoning_buf:
+                        m_draft = re.findall(r'Draft:\s*["\']([^"\']+)["\']', reasoning_buf, re.IGNORECASE)
+                        if m_draft:
+                            current_buf = m_draft[-1]
+                        else:
+                            sentences = [s.strip() for s in re.split(r'[\n.]+', reasoning_buf) if len(s.strip()) > 8]
+                            if sentences:
+                                current_buf = sentences[-1]
 
                     if current_buf.strip() and self.running:
                         cleaned = clean_llm_response(current_buf.strip(), user_text=transcript)
@@ -604,8 +616,7 @@ class OpenRouterVoiceSessionManager:
             "model": self.model,
             "messages": messages,
             "temperature": 0.0,
-            "max_tokens": 300,
-            "reasoning": {"effort": "none"}
+            "max_tokens": 450
         }
 
         try:

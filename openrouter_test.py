@@ -36,7 +36,7 @@ def test_openrouter_connection():
                 "content": "Reply with exactly: OpenRouter connection successful."
             }
         ],
-        "max_tokens": 150
+        "max_tokens": 450
     }
 
     print("========================================")
@@ -54,8 +54,9 @@ def test_openrouter_connection():
 
         if response.status_code == 200:
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            print(f"Response text: {content.strip()}")
+            msg = data["choices"][0]["message"]
+            content = msg.get("content") or msg.get("reasoning") or ""
+            print(f"Response text: {content.strip()[:100]}")
             print("========================================")
             print("[SUCCESS] OpenRouter API is operational.")
             print("========================================")

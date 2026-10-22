@@ -8,7 +8,7 @@ load_dotenv(ENV_FILE)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv(
     "OPENROUTER_MODEL",
-    "deepseek/deepseek-v4-flash"
+    "nvidia/nemotron-3.5-lightning:free"
 )
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
