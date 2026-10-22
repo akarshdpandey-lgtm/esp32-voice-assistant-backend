@@ -233,7 +233,13 @@ class OpenRouterVoiceSessionManager:
             self.is_processing = True
             logger.info(f"[VOICE] Preparing welcome greeting: '{WELCOME_MESSAGE}'")
             if _WELCOME_AUDIO_CACHE is None:
-                _WELCOME_AUDIO_CACHE = await self._synthesize_speech(WELCOME_MESSAGE)
+                pcm_path = os.path.join(os.path.dirname(__file__), "welcome.pcm")
+                if os.path.exists(pcm_path):
+                    with open(pcm_path, "rb") as f:
+                        _WELCOME_AUDIO_CACHE = f.read()
+                    logger.info("[VOICE] Loaded pre-rendered welcome greeting from welcome.pcm")
+                else:
+                    _WELCOME_AUDIO_CACHE = await self._synthesize_speech(WELCOME_MESSAGE)
 
             if _WELCOME_AUDIO_CACHE and self.running:
                 logger.info("[VOICE] Speaking welcome greeting to ESP32...")
@@ -356,12 +362,22 @@ class OpenRouterVoiceSessionManager:
                 "pm" in u_norm or "पीएम" in transcript or "प्रधानमंत्री" in transcript or "prime minister" in u_norm
             ):
                 quick_response = "भारत के प्रधानमंत्री नरेंद्र मोदी हैं।"
-            elif u_norm in ("hello", "hi", "namaste", "नमस्ते", "हेलो"):
+            elif any(g in u_norm for g in ("hello", "hi", "namaste", "नमस्ते", "हेलो", "प्रणाम", "swagat", "स्वागत", "सुप्रभात")):
                 quick_response = "नमस्ते! मैं आपकी क्या सहायता कर सकता हूँ?"
 
             if quick_response:
                 logger.info(f"[LLM] Fast direct response: '{quick_response}'")
-                pcm_audio = await self._synthesize_speech(quick_response)
+                pcm_audio = None
+                if "नमस्ते" in quick_response:
+                    p = os.path.join(os.path.dirname(__file__), "greeting_response.pcm")
+                    if os.path.exists(p):
+                        try:
+                            with open(p, "rb") as f:
+                                pcm_audio = f.read()
+                        except Exception:
+                            pass
+                if not pcm_audio:
+                    pcm_audio = await self._synthesize_speech(quick_response)
                 if pcm_audio and self.running:
                     dur = len(pcm_audio) / (24000 * 2 * 2)
                     t_start = time.time()
@@ -612,6 +628,14 @@ class OpenRouterVoiceSessionManager:
         """
         if not text or not text.strip():
             return None
+        if "व्यस्त" in text:
+            p = os.path.join(os.path.dirname(__file__), "fallback_busy.pcm")
+            if os.path.exists(p):
+                try:
+                    with open(p, "rb") as f:
+                        return f.read()
+                except Exception:
+                    pass
         try:
             communicate = edge_tts.Communicate(
                 text.strip(),
