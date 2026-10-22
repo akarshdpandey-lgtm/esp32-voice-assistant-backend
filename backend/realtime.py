@@ -409,8 +409,12 @@ class OpenRouterVoiceSessionManager:
 
                     async with client.stream("POST", OPENROUTER_API_URL, headers=headers, json=payload) as response:
                         if response.status_code != 200:
-                            logger.error(f"[OPENROUTER] Stream HTTP {response.status_code}")
-                            await sentence_queue.put(None)
+                            err_bytes = await response.aread()
+                            err_msg = err_bytes.decode(errors="ignore")
+                            logger.error(f"[OPENROUTER] Stream HTTP {response.status_code}: {err_msg[:250]}")
+                            fallback_msg = "माफ़ कीजिए, AI सर्वर अभी व्यस्त है।"
+                            full_response_parts.append(fallback_msg)
+                            await sentence_queue.put(fallback_msg)
                             return
 
                         async for line in response.aiter_lines():
@@ -457,6 +461,10 @@ class OpenRouterVoiceSessionManager:
 
                 except Exception as e:
                     logger.error(f"[LLM] Stream exception: {e}")
+                    if not full_response_parts:
+                        fallback_msg = "माफ़ कीजिए, सर्वर से संपर्क नहीं हो पाया।"
+                        full_response_parts.append(fallback_msg)
+                        await sentence_queue.put(fallback_msg)
                 finally:
                     await sentence_queue.put(None)
 

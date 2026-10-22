@@ -35,7 +35,8 @@ def test_openrouter_connection():
                 "role": "user",
                 "content": "Reply with exactly: OpenRouter connection successful."
             }
-        ]
+        ],
+        "max_tokens": 150
     }
 
     print("========================================")
