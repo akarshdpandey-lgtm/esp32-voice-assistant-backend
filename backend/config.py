@@ -6,10 +6,11 @@ ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(ENV_FILE)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv(
-    "OPENROUTER_MODEL",
-    "nvidia/nemotron-3.5-lightning:free"
-)
+_raw_model = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip()
+if _raw_model in ("deepseek/deepseek-v4-flash", "deepseek/deepseek-chat", ""):
+    OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free"
+else:
+    OPENROUTER_MODEL = _raw_model
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes")
