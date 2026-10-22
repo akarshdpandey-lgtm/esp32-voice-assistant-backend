@@ -6,9 +6,9 @@ ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(ENV_FILE)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-_raw_model = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip()
-if _raw_model in ("deepseek/deepseek-v4-flash", "deepseek/deepseek-chat", ""):
-    OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free"
+_raw_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.6-flash").strip()
+if _raw_model in ("deepseek/deepseek-v4-flash", "deepseek/deepseek-chat", "nvidia/nemotron-3.5-lightning:free", ""):
+    OPENROUTER_MODEL = "qwen/qwen3.6-flash"
 else:
     OPENROUTER_MODEL = _raw_model
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

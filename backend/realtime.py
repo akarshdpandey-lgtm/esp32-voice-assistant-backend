@@ -465,11 +465,31 @@ class OpenRouterVoiceSessionManager:
                             "payload": {
                                 "model": self.model,
                                 "messages": messages,
-                                "temperature": 0.0,
-                                "max_tokens": 800,
+                                "temperature": 0.1,
+                                "max_tokens": 200,
+                                "reasoning": {"effort": "none"},
                                 "stream": True
                             }
                         })
+                        if self.model != "qwen/qwen3.5-flash-02-23":
+                            providers.append({
+                                "name": "OpenRouter (Backup Qwen 3.5)",
+                                "url": OPENROUTER_API_URL,
+                                "headers": {
+                                    "Authorization": f"Bearer {self.api_key}",
+                                    "Content-Type": "application/json",
+                                    "HTTP-Referer": "https://esp32-voice-assistant.local",
+                                    "X-Title": "ESP32 Voice Assistant"
+                                },
+                                "payload": {
+                                    "model": "qwen/qwen3.5-flash-02-23",
+                                    "messages": messages,
+                                    "temperature": 0.1,
+                                    "max_tokens": 200,
+                                    "reasoning": {"effort": "none"},
+                                    "stream": True
+                                }
+                            })
 
                     client = self.http_client or httpx.AsyncClient(timeout=20.0)
                     sentence_splitter = re.compile(r'([।!?]|\.(?!\d))\s*|\n+')
@@ -698,8 +718,9 @@ class OpenRouterVoiceSessionManager:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 450
+            "temperature": 0.1,
+            "max_tokens": 200,
+            "reasoning": {"effort": "none"}
         }
 
         try:
