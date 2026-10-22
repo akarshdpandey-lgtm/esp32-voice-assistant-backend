@@ -182,11 +182,19 @@ class OpenRouterVoiceSessionManager:
 
         self.groq_key = GROQ_API_KEY
         self.groq_model = GROQ_MODEL
+        self.gemini_key = os.getenv("GEMINI_API_KEY", "")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         if self.groq_key and not self.groq_key.startswith("your_"):
             logger.info(f"[LLM] Ultra-fast Groq engine enabled with model: {self.groq_model}")
             self.test_mode = False
-        elif not self.api_key or self.api_key.startswith("your_"):
-            logger.warning("[OPENROUTER] OPENROUTER_API_KEY is not configured. Falling back to test mode.")
+        elif self.gemini_key and not self.gemini_key.startswith("your_"):
+            logger.info(f"[LLM] Google Gemini engine enabled with model: {self.gemini_model}")
+            self.test_mode = False
+        elif self.api_key and not self.api_key.startswith("your_"):
+            logger.info(f"[LLM] OpenRouter engine enabled with model: {self.model}")
+            self.test_mode = False
+        else:
+            logger.warning("[LLM] No valid API key configured. Falling back to test mode.")
             self.test_mode = True
 
     async def interrupt(self):
@@ -411,104 +419,140 @@ class OpenRouterVoiceSessionManager:
                         messages.append(turn)
                     messages.append({"role": "user", "content": transcript})
 
+                    providers = []
                     if self.groq_key and not self.groq_key.startswith("your_"):
-                        api_url = "https://api.groq.com/openai/v1/chat/completions"
-                        headers = {
-                            "Authorization": f"Bearer {self.groq_key}",
-                            "Content-Type": "application/json"
-                        }
-                        payload = {
-                            "model": self.groq_model,
-                            "messages": messages,
-                            "temperature": 0.2,
-                            "max_tokens": 150,
-                            "stream": True
-                        }
-                    else:
-                        api_url = OPENROUTER_API_URL
-                        headers = {
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Content-Type": "application/json",
-                            "HTTP-Referer": "https://esp32-voice-assistant.local",
-                            "X-Title": "ESP32 Voice Assistant"
-                        }
-                        payload = {
-                            "model": self.model,
-                            "messages": messages,
-                            "temperature": 0.0,
-                            "max_tokens": 800,
-                            "stream": True
-                        }
+                        providers.append({
+                            "name": "Groq",
+                            "url": "https://api.groq.com/openai/v1/chat/completions",
+                            "headers": {
+                                "Authorization": f"Bearer {self.groq_key}",
+                                "Content-Type": "application/json"
+                            },
+                            "payload": {
+                                "model": self.groq_model,
+                                "messages": messages,
+                                "temperature": 0.2,
+                                "max_tokens": 150,
+                                "stream": True
+                            }
+                        })
+                    if self.gemini_key and not self.gemini_key.startswith("your_"):
+                        providers.append({
+                            "name": "Gemini",
+                            "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                            "headers": {
+                                "Authorization": f"Bearer {self.gemini_key}",
+                                "Content-Type": "application/json"
+                            },
+                            "payload": {
+                                "model": self.gemini_model,
+                                "messages": messages,
+                                "temperature": 0.2,
+                                "max_tokens": 150,
+                                "stream": True
+                            }
+                        })
+                    if self.api_key and not self.api_key.startswith("your_"):
+                        providers.append({
+                            "name": "OpenRouter",
+                            "url": OPENROUTER_API_URL,
+                            "headers": {
+                                "Authorization": f"Bearer {self.api_key}",
+                                "Content-Type": "application/json",
+                                "HTTP-Referer": "https://esp32-voice-assistant.local",
+                                "X-Title": "ESP32 Voice Assistant"
+                            },
+                            "payload": {
+                                "model": self.model,
+                                "messages": messages,
+                                "temperature": 0.0,
+                                "max_tokens": 800,
+                                "stream": True
+                            }
+                        })
 
                     client = self.http_client or httpx.AsyncClient(timeout=20.0)
                     sentence_splitter = re.compile(r'([।!?]|\.(?!\d))\s*|\n+')
-                    current_buf = ""
-                    reasoning_buf = ""
-                    in_think = False
+                    stream_succeeded = False
 
-                    async with client.stream("POST", api_url, headers=headers, json=payload) as response:
-                        if response.status_code != 200:
-                            err_bytes = await response.aread()
-                            err_msg = err_bytes.decode(errors="ignore")
-                            logger.error(f"[LLM] Stream HTTP {response.status_code}: {err_msg[:250]}")
-                            fallback_msg = "माफ़ कीजिए, AI सर्वर अभी व्यस्त है।"
-                            full_response_parts.append(fallback_msg)
-                            await sentence_queue.put(fallback_msg)
-                            return
-
-                        async for line in response.aiter_lines():
-                            if not self.running or not self.is_processing:
-                                break
-                            if not line or not line.startswith("data: "):
-                                continue
-                            data_str = line[6:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                                delta = data["choices"][0]["delta"].get("content", "")
-                                if not delta:
-                                    r_chunk = data["choices"][0]["delta"].get("reasoning", "")
-                                    if r_chunk:
-                                        reasoning_buf += r_chunk
+                    for provider in providers:
+                        current_buf = ""
+                        reasoning_buf = ""
+                        in_think = False
+                        logger.info(f"[LLM] Streaming via {provider['name']} ({provider['payload']['model']})...")
+                        try:
+                            async with client.stream("POST", provider["url"], headers=provider["headers"], json=provider["payload"]) as response:
+                                if response.status_code != 200:
+                                    err_bytes = await response.aread()
+                                    err_msg = err_bytes.decode(errors="ignore")
+                                    logger.error(f"[{provider['name']}] HTTP {response.status_code}: {err_msg[:250]}")
                                     continue
-                                current_buf += delta
 
-                                # Handle <think> tags if any
-                                if "<think>" in current_buf and not in_think:
-                                    in_think = True
-                                if in_think:
-                                    if "</think>" in current_buf:
-                                        current_buf = current_buf.split("</think>", 1)[1]
-                                        in_think = False
-                                    else:
+                                async for line in response.aiter_lines():
+                                    if not self.running or not self.is_processing:
+                                        break
+                                    if not line or not line.startswith("data: "):
                                         continue
+                                    data_str = line[6:].strip()
+                                    if data_str == "[DONE]":
+                                        break
+                                    try:
+                                        data = json.loads(data_str)
+                                        delta = data["choices"][0]["delta"].get("content", "")
+                                        if not delta:
+                                            r_chunk = data["choices"][0]["delta"].get("reasoning", "")
+                                            if r_chunk:
+                                                reasoning_buf += r_chunk
+                                            continue
+                                        current_buf += delta
 
-                                match = sentence_splitter.search(current_buf)
-                                if match and match.end() >= 12:
-                                    candidate = current_buf[:match.end()].strip()
-                                    current_buf = current_buf[match.end():]
-                                    cleaned = clean_llm_response(candidate, user_text=transcript)
+                                        # Handle <think> tags if any
+                                        if "<think>" in current_buf and not in_think:
+                                            in_think = True
+                                        if in_think:
+                                            if "</think>" in current_buf:
+                                                current_buf = current_buf.split("</think>", 1)[1]
+                                                in_think = False
+                                            else:
+                                                continue
+
+                                        match = sentence_splitter.search(current_buf)
+                                        if match and match.end() >= 12:
+                                            candidate = current_buf[:match.end()].strip()
+                                            current_buf = current_buf[match.end():]
+                                            cleaned = clean_llm_response(candidate, user_text=transcript)
+                                            if cleaned:
+                                                full_response_parts.append(cleaned)
+                                                await sentence_queue.put(cleaned)
+                                    except Exception:
+                                        pass
+
+                                if not full_response_parts and not current_buf.strip() and reasoning_buf:
+                                    m_draft = re.findall(r'Draft:\s*["\']([^"\']+)["\']', reasoning_buf, re.IGNORECASE)
+                                    if m_draft:
+                                        current_buf = m_draft[-1]
+                                    else:
+                                        sentences = [s.strip() for s in re.split(r'[\n.]+', reasoning_buf) if len(s.strip()) > 8]
+                                        if sentences:
+                                            current_buf = sentences[-1]
+
+                                if current_buf.strip() and self.running:
+                                    cleaned = clean_llm_response(current_buf.strip(), user_text=transcript)
                                     if cleaned:
                                         full_response_parts.append(cleaned)
                                         await sentence_queue.put(cleaned)
-                            except Exception:
-                                pass
 
-                    if not full_response_parts and not current_buf.strip() and reasoning_buf:
-                        m_draft = re.findall(r'Draft:\s*["\']([^"\']+)["\']', reasoning_buf, re.IGNORECASE)
-                        if m_draft:
-                            current_buf = m_draft[-1]
-                        else:
-                            sentences = [s.strip() for s in re.split(r'[\n.]+', reasoning_buf) if len(s.strip()) > 8]
-                            if sentences:
-                                current_buf = sentences[-1]
+                                if full_response_parts:
+                                    stream_succeeded = True
+                                    break
+                        except Exception as pe:
+                            logger.error(f"[{provider['name']}] Connection error: {pe}")
+                            continue
 
-                    if current_buf.strip() and self.running:
-                        cleaned = clean_llm_response(current_buf.strip(), user_text=transcript)
-                        if cleaned:
-                            full_response_parts.append(cleaned)
-                            await sentence_queue.put(cleaned)
+                    if not stream_succeeded and not full_response_parts:
+                        fallback_msg = "माफ़ कीजिए, AI सर्वर अभी व्यस्त है।"
+                        full_response_parts.append(fallback_msg)
+                        await sentence_queue.put(fallback_msg)
 
                 except Exception as e:
                     logger.error(f"[LLM] Stream exception: {e}")
