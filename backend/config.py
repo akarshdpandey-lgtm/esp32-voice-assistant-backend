@@ -11,6 +11,8 @@ if _raw_model in ("deepseek/deepseek-v4-flash", "deepseek/deepseek-chat", ""):
     OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free"
 else:
     OPENROUTER_MODEL = _raw_model
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes")

@@ -20,6 +20,8 @@ import speech_recognition as sr
 from backend.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
+    GROQ_API_KEY,
+    GROQ_MODEL,
     TEST_MODE,
     AUDIO_GAIN,
     ENABLE_WELCOME,
@@ -170,15 +172,20 @@ class OpenRouterVoiceSessionManager:
         self.speech_start_time = 0.0
         self.last_speech_sound_time = 0.0
         self.vad_threshold_rms = VAD_THRESHOLD_RMS  # RMS threshold for speech activity
-        self.silence_duration_sec = 0.32  # Fast silence detection for snappy response
-        self.min_speech_duration_sec = 0.25  # Minimum speech duration to consider valid
-        self.max_utterance_sec = 15.0  # Maximum speech duration before forcing transcribe
+        self.silence_duration_sec = 0.20  # Fast 200ms silence detection for snappy response
+        self.min_speech_duration_sec = 0.20  # Minimum speech duration to consider valid
+        self.max_utterance_sec = 12.0  # Maximum speech duration before forcing transcribe
         
         # State locks
         self.is_processing = False
         self.processing_task: Optional[asyncio.Task] = None
 
-        if not self.api_key or self.api_key.startswith("your_"):
+        self.groq_key = GROQ_API_KEY
+        self.groq_model = GROQ_MODEL
+        if self.groq_key and not self.groq_key.startswith("your_"):
+            logger.info(f"[LLM] Ultra-fast Groq engine enabled with model: {self.groq_model}")
+            self.test_mode = False
+        elif not self.api_key or self.api_key.startswith("your_"):
             logger.warning("[OPENROUTER] OPENROUTER_API_KEY is not configured. Falling back to test mode.")
             self.test_mode = True
 
@@ -404,19 +411,34 @@ class OpenRouterVoiceSessionManager:
                         messages.append(turn)
                     messages.append({"role": "user", "content": transcript})
 
-                    headers = {
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://esp32-voice-assistant.local",
-                        "X-Title": "ESP32 Voice Assistant"
-                    }
-                    payload = {
-                        "model": self.model,
-                        "messages": messages,
-                        "temperature": 0.0,
-                        "max_tokens": 800,
-                        "stream": True
-                    }
+                    if self.groq_key and not self.groq_key.startswith("your_"):
+                        api_url = "https://api.groq.com/openai/v1/chat/completions"
+                        headers = {
+                            "Authorization": f"Bearer {self.groq_key}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "model": self.groq_model,
+                            "messages": messages,
+                            "temperature": 0.2,
+                            "max_tokens": 150,
+                            "stream": True
+                        }
+                    else:
+                        api_url = OPENROUTER_API_URL
+                        headers = {
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://esp32-voice-assistant.local",
+                            "X-Title": "ESP32 Voice Assistant"
+                        }
+                        payload = {
+                            "model": self.model,
+                            "messages": messages,
+                            "temperature": 0.0,
+                            "max_tokens": 800,
+                            "stream": True
+                        }
 
                     client = self.http_client or httpx.AsyncClient(timeout=20.0)
                     sentence_splitter = re.compile(r'([।!?]|\.(?!\d))\s*|\n+')
@@ -424,11 +446,11 @@ class OpenRouterVoiceSessionManager:
                     reasoning_buf = ""
                     in_think = False
 
-                    async with client.stream("POST", OPENROUTER_API_URL, headers=headers, json=payload) as response:
+                    async with client.stream("POST", api_url, headers=headers, json=payload) as response:
                         if response.status_code != 200:
                             err_bytes = await response.aread()
                             err_msg = err_bytes.decode(errors="ignore")
-                            logger.error(f"[OPENROUTER] Stream HTTP {response.status_code}: {err_msg[:250]}")
+                            logger.error(f"[LLM] Stream HTTP {response.status_code}: {err_msg[:250]}")
                             fallback_msg = "माफ़ कीजिए, AI सर्वर अभी व्यस्त है।"
                             full_response_parts.append(fallback_msg)
                             await sentence_queue.put(fallback_msg)
@@ -529,7 +551,7 @@ class OpenRouterVoiceSessionManager:
 
                     if playback_started:
                         stream_elapsed = time.time() - stream_start
-                        remaining_play_time = max(0.2, total_duration - stream_elapsed + 0.25)
+                        remaining_play_time = max(0.05, total_duration - stream_elapsed + 0.10)
                         await asyncio.sleep(remaining_play_time)
                         logger.info("[VOICE] Pipelined playback complete")
                         await self.send_to_esp32_control({"type": "audio_done"})
@@ -554,7 +576,6 @@ class OpenRouterVoiceSessionManager:
             # Clear mic buffer & settle
             self.audio_buffer.clear()
             self.is_speech_active = False
-            await asyncio.sleep(0.3)
 
         except Exception as e:
             tb = traceback.format_exc()
@@ -576,6 +597,24 @@ class OpenRouterVoiceSessionManager:
                 wf.setframerate(16000)
                 wf.writeframes(pcm_bytes)
             wav_io.seek(0)
+
+            if self.groq_key and not self.groq_key.startswith("your_"):
+                try:
+                    files = {
+                        "file": ("audio.wav", wav_io.getvalue(), "audio/wav"),
+                        "model": (None, "whisper-large-v3-turbo"),
+                        "language": (None, "hi"),
+                        "response_format": (None, "text")
+                    }
+                    groq_headers = {"Authorization": f"Bearer {self.groq_key}"}
+                    client = self.http_client or httpx.AsyncClient(timeout=8.0)
+                    res = await client.post("https://api.groq.com/openai/v1/audio/transcriptions", headers=groq_headers, files=files)
+                    if res.status_code == 200:
+                        t = res.text.strip()
+                        if t:
+                            return t
+                except Exception as ge:
+                    logger.warning(f"[GROQ STT] Fallback to Google STT: {ge}")
 
             def _recognize():
                 with sr.AudioFile(wav_io) as source:
